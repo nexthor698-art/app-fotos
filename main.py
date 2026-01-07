@@ -6,7 +6,7 @@ import uvicorn
 
 app = FastAPI()
 
-# Permitir TODO sin restricciones para evitar el 403
+# Quitamos todas las trabas de seguridad para desarrollo
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,16 +20,17 @@ paneles_control = []
 
 @app.get("/")
 async def root():
-    return {"status": "Servidor Funcionando"}
+    return {"status": "Servidor Online", "dispositivos": len(dispositivos_activos)}
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    # Aceptar la conexión inmediatamente sin validar headers
-    await websocket.accept()
+    await websocket.accept() # Acepta la conexión sin validar headers
     
     if client_id == "PANEL_CONTROL":
         paneles_control.append(websocket)
-        await websocket.send_text(json.dumps({"tipo": "lista_dispositivos", "ids": list(dispositivos_activos.keys())}))
+        # Enviar lista de IDs al conectar
+        ids = list(dispositivos_activos.keys())
+        await websocket.send_text(json.dumps({"tipo": "lista_dispositivos", "ids": ids}))
     else:
         dispositivos_activos[client_id] = websocket
         await notificar_paneles({"tipo": "nuevo_dispositivo", "id": client_id})
@@ -45,12 +46,11 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             else:
                 await notificar_paneles({"tipo": "imagen_recibida", "device_id": client_id, "image_data": mensaje.get("image_data")})
     except WebSocketDisconnect:
-        if client_id == "PANEL_CONTROL":
-            if websocket in paneles_control: paneles_control.remove(websocket)
-        else:
-            if client_id in dispositivos_activos:
-                del dispositivos_activos[client_id]
-                await notificar_paneles({"tipo": "dispositivo_desconectado", "id": client_id})
+        if client_id in dispositivos_activos:
+            del dispositivos_activos[client_id]
+            await notificar_paneles({"tipo": "dispositivo_desconectado", "id": client_id})
+        if websocket in paneles_control:
+            paneles_control.remove(websocket)
 
 async def notificar_paneles(data):
     for panel in paneles_control:
